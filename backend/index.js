@@ -4,67 +4,130 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const pdfParse = require('pdf-parse');
+const { orkesConductorClient } = require('@io-orkes/conductor-javascript');
 
+// --- Internal Imports ---
+const connectDB = require('./config/db');
+const Resume = require('./models/Resume');
+const Analysis = require('./models/Analysis');
+const startWorkers = require('./worker.js');
+
+// --- Initializations ---
 const app = express();
+const port = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// Ensure uploads folder exists
+// --- Database Connection ---
+connectDB();
+
+// --- Static Folder for Uploads ---
 const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+app.use('/uploads', express.static(uploadDir));
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-// Multer setup
-const upload = multer({ dest: uploadDir });
+// --- Multer File Upload Setup ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`);
+  },
+});
+const upload = multer({ storage });
 
-// Health check endpoint
-app.get('/', (req, res) => res.json({ ok: true, msg: 'ChainCV backend running' }));
-
-// Upload endpoint (PDF analysis)
-app.post('/upload', upload.single('resume'), async (req, res) => {
+// --- Main async function ---
+const initializeServer = async () => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const serverUrl = process.env.ORKES_SERVER_URL;
+    console.log("Using Orkes server URL:", serverUrl);
 
-    const filePath = req.file.path;
-    let text = "";
+    // --- Orkes Conductor Client Setup ---
+    const orkesClient = await orkesConductorClient({
+      keyId: process.env.ORKES_KEY_ID,
+      keySecret: process.env.ORKES_KEY_SECRET,
+      serverUrl: serverUrl,
+    });
+    console.log("✅ Orkes Conductor Client connected");
 
-    // PDF parsing
-    if (req.file.mimetype === "application/pdf") {
-      const dataBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdfParse(dataBuffer);
-      text = pdfData.text;
-    } else {
-      text = "Currently only PDF supported.";
-    }
+    // --- API Routes ---
+    app.get('/', (req, res) => res.json({ ok: true, msg: 'ChainCV backend running' }));
 
-    // Simple AI-like analysis
-    const score = text.includes("JavaScript") ? "Strong in JS" : "General";
+    app.post('/upload', upload.single('resume'), async (req, res) => {
+      try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        const newResume = new Resume({
+          originalName: req.file.originalname,
+          filePath: req.file.path,
+          _createdBy: req.body._createdBy || 'roshanmondal44@gmail.com', // Allow _createdBy from request
+        });
+        const savedResume = await newResume.save();
+        res.status(201).json({
+          message: 'File uploaded and ready for analysis.',
+          resumeId: savedResume._id,
+          fileName: savedResume.originalName,
+        });
+      } catch (err) {
+        console.error('Error during file upload:', err);
+        res.status(500).json({ error: 'Server error during upload' });
+      }
+    });
 
-    const response = {
-      status: 'accepted',
-      filename: req.file.originalname,
-      savedPath: req.file.path,
-      size: req.file.size,
-      analysis: {
-        wordCount: text.split(/\s+/).length,
-        score,
-      },
-    };
+    app.post('/analyze', async (req, res) => {
+      try {
+        const { resumeId } = req.body;
+        if (!resumeId) return res.status(400).json({ error: 'resumeId is required' });
 
-    res.json(response);
-  } catch (err) {
-    console.error('Error processing upload:', err);
-    res.status(500).json({ error: 'Server error', details: err.message });
+        const resume = await Resume.findById(resumeId);
+        if (!resume) return res.status(404).json({ error: 'Resume not found' });
+
+        const workflowInstance = await orkesClient.workflowResource.startWorkflow({
+          name: "resume_analysis_workflow_v2",
+          version: 1,
+          input: {
+            resumeId: resume._id.toString(),
+            _createdBy: resume._createdBy || "roshanmondal44@gmail.com"
+          },
+        });
+
+        await Resume.findByIdAndUpdate(resumeId, { status: 'PROCESSING' });
+
+        res.status(202).json({
+          message: "Analysis workflow started successfully.",
+          workflowId: workflowInstance.workflowId,
+        });
+      } catch (err) {
+        console.error('Error starting analysis workflow:', err);
+        res.status(500).json({ error: 'Could not start analysis workflow' });
+      }
+    });
+
+    app.get('/analysis/status/:resumeId', async (req, res) => {
+      try {
+        const { resumeId } = req.params;
+        const result = await Analysis.findOne({ resumeId });
+        if (result) return res.json({ status: 'COMPLETED', data: result.analysisData });
+
+        const resume = await Resume.findById(resumeId);
+        if (resume && resume.status === 'FAILED') {
+          return res.json({ status: 'FAILED', message: 'Analysis failed during processing.' });
+        }
+        res.json({ status: 'PENDING' });
+      } catch (err) {
+        console.error('Error fetching analysis status:', err);
+        res.status(500).json({ error: 'Server error while checking status' });
+      }
+    });
+
+    // --- Start server ---
+    app.listen(port, () => {
+      console.log(`🚀 ChainCV backend listening on http://localhost:${port}`);
+      startWorkers(orkesClient);
+    });
+  } catch (error) {
+    console.error("❌ Failed to initialize server:", error);
+    process.exit(1);
   }
-});
+};
 
-// Simple wallet verification stub
-app.get('/verify/:wallet', (req, res) => {
-  const wallet = req.params.wallet;
-  res.json({ wallet, verified: false, message: "Verification not yet implemented" });
-});
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 ChainCV backend listening on http://localhost:${PORT}`));
+// --- Run server ---
+initializeServer();
