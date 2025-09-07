@@ -29,7 +29,7 @@ CRITICAL INSTRUCTIONS:
   "summary": "concise professional summary in 2-3 sentences",
   "strengths": ["strength1", "strength2", "strength3", "strength4"],
   "suggestion": "one actionable suggestion for improvement",
-  "overallScore": 85
+  "overallScore": 80
 }
 
 Resume Text:
