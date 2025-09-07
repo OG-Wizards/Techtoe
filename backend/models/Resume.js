@@ -1,11 +1,13 @@
 const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
 
-const ResumeSchema = new Schema({
+const ResumeSchema = new mongoose.Schema({
   originalName: { type: String, required: true },
   filePath: { type: String, required: true },
-  status: { type: String, default: 'UPLOADED' }, // UPLOADED, PROCESSING, COMPLETED, FAILED
-  uploadDate: { type: Date, default: Date.now }
+  _createdBy: { type: String, required: true },
+  status: { type: String, default: 'PENDING' },
+  completedAt: { type: Date },
+  failedAt: { type: Date },
+  error: { type: String },
 });
 
 module.exports = mongoose.model('Resume', ResumeSchema);

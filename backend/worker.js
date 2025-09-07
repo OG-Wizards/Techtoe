@@ -5,125 +5,53 @@ const { analyzeResumeWithAI } = require('./services/aiAnalyzer');
 const Analysis = require('./models/Analysis');
 const Resume = require('./models/Resume');
 
-// --- Task Implementations ---
-
+// --- Fetch file path task ---
 async function fetch_file_path_from_mongo(task) {
-  console.log('=== FETCH FILE PATH FROM MONGO TASK STARTED ===');
-  console.log('DEBUG - Fetch task input:', JSON.stringify(task.inputData, null, 2));
-
   const { resumeId, _createdBy } = task.inputData;
-
   try {
-    if (!resumeId && !_createdBy) {
-      throw new Error("resumeId or _createdBy is required to fetch file path");
-    }
+    let resume = resumeId ? await Resume.findById(resumeId) : await Resume.findOne({ _createdBy });
+    if (!resume || !resume.filePath) throw new Error('Resume not found or filePath missing');
 
-    let resume;
-    if (resumeId) {
-      resume = await Resume.findById(resumeId);
-    } else if (_createdBy) {
-      resume = await Resume.findOne({ _createdBy });
-    }
-
-    if (!resume || !resume.filePath) {
-      throw new Error(`No resume found or filePath missing for resumeId: ${resumeId} or _createdBy: ${_createdBy}`);
-    }
-
-    return {
-      status: 'COMPLETED',
-      outputData: {
-        filePath: resume.filePath,
-        resumeId: resume._id.toString(),
-        fetchStatus: "Success"
-      }
-    };
-  } catch (error) {
-    console.error('Error fetching file path from MongoDB:', error);
-    return {
-      status: 'COMPLETED',
-      outputData: {
-        filePath: null,
-        resumeId,
-        fetchStatus: "Failure",
-        error: error.message
-      }
-    };
+    return { status: 'COMPLETED', outputData: { filePath: resume.filePath, resumeId: resume._id.toString() } };
+  } catch (err) {
+    return { status: 'COMPLETED', outputData: { filePath: null, resumeId, error: err.message } };
   }
 }
 
+// --- Process resume task ---
 async function process_resume(task) {
-  console.log('=== PROCESS RESUME TASK STARTED ===');
-  console.log('DEBUG - Process task input:', JSON.stringify(task.inputData, null, 2));
-
-  const filePath = task.inputData.filePath;
-  const resumeId = task.inputData.resumeId;
+  const { filePath, resumeId } = task.inputData;
 
   try {
-    if (!filePath || !fs.existsSync(filePath)) {
-      throw new Error(`File not found at path: ${filePath}`);
-    }
+    if (!filePath || !fs.existsSync(filePath)) throw new Error(`File not found at path: ${filePath}`);
 
     const dataBuffer = fs.readFileSync(filePath);
     const data = await pdf(dataBuffer);
-
     const text = data.text?.trim();
-    if (!text) {
-      throw new Error("PDF text extraction returned empty content");
-    }
+    if (!text) throw new Error('PDF text extraction returned empty content');
 
-    console.log("Text extraction successful.");
+    console.log('Text extraction successful.');
     const analysisJson = await analyzeResumeWithAI(text);
     console.log('AI analysis successful.');
 
-    await Analysis.create({
-      resumeId,
-      analysisData: analysisJson,
-      createdAt: new Date()
-    });
+    await Analysis.create({ resumeId, analysisData: analysisJson, createdAt: new Date() });
+    await Resume.findByIdAndUpdate(resumeId, { status: 'COMPLETED', completedAt: new Date() });
 
-    await Resume.findByIdAndUpdate(resumeId, {
-      status: 'COMPLETED',
-      completedAt: new Date()
-    });
-
-    return {
-      status: 'COMPLETED',
-      outputData: {
-        status: "Success",
-        message: "Resume processed and saved successfully",
-        resumeId
-      }
-    };
-  } catch (error) {
-    console.error("Resume processing failed:", error);
-
-    await Resume.findByIdAndUpdate(resumeId, {
-      status: 'FAILED',
-      error: error.message,
-      failedAt: new Date()
-    }).catch(() => {});
-
-    return {
-      status: 'COMPLETED',
-      outputData: {
-        status: "Failure",
-        message: `Resume processing failed: ${error.message}`,
-        resumeId
-      }
-    };
+    return { status: 'COMPLETED', outputData: { status: 'Success', message: 'Resume processed', resumeId } };
+  } catch (err) {
+    console.error('Resume processing failed:', err);
+    await Resume.findByIdAndUpdate(resumeId, { status: 'FAILED', error: err.message, failedAt: new Date() }).catch(() => {});
+    return { status: 'COMPLETED', outputData: { status: 'Failure', message: err.message, resumeId } };
   }
 }
 
-// --- Main Worker Setup Function ---
+// --- Worker initialization ---
 function startWorkers(client) {
   console.log('=== STARTING ORKES WORKERS ===');
   const taskManager = new TaskManager(client, [
     { taskDefName: 'fetch_file_path_from_mongo', execute: fetch_file_path_from_mongo },
     { taskDefName: 'process_resume', execute: process_resume },
-  ], {
-    logger: console,
-    options: { concurrency: 5, pollInterval: 100 }
-  });
+  ], { logger: console, options: { concurrency: 5, pollInterval: 100 } });
 
   taskManager.startPolling();
   console.log('=== WORKERS READY AND POLLING ===');
