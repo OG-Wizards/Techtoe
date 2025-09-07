@@ -2,58 +2,103 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Body & page background */
 body {
   margin: 0;
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  background-color: #242424;
-  color: #ffffff;
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background: linear-gradient(135deg, #1f1f2e, #0d0d12);
+  color: #f5f5f5;
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
+/* Main container */
 .app-container {
   text-align: center;
   padding: 2rem;
   background-color: #1a1a1a;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  max-width: 500px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  max-width: 550px;
   width: 90%;
+  transition: transform 0.2s;
 }
 
+.app-container:hover {
+  transform: translateY(-5px);
+}
+
+/* Header */
 h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1.5rem;
+  font-size: 2.75rem;
+  margin-bottom: 2rem;
+  font-weight: 700;
   color: #ffffff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.7);
 }
 
+/* File input */
 input[type="file"] {
   margin: 1rem 0;
+  cursor: pointer;
 }
 
+/* Buttons */
 button {
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  background-color: #646cff;
+  padding: 0.75em 1.5em;
+  font-size: 1rem;
+  font-weight: 600;
+  background-color: #7c5fff;
   color: white;
   cursor: pointer;
   transition: all 0.25s;
 }
 
 button:hover {
-  background-color: #535bf2;
-  border-color: #646cff;
+  background-color: #6850e8;
+  border-color: #7c5fff;
 }
 
+/* Disabled button */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Analysis result card */
 .analysis-result {
-  margin-top: 1.5rem;
+  margin-top: 2rem;
   text-align: left;
   background-color: #2a2a2a;
-  padding: 1rem;
-  border-radius: 8px;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  transition: all 0.3s;
+}
+
+.analysis-result h3,
+.analysis-result h4 {
+  margin-bottom: 0.5rem;
+  color: #f5f5f5;
+}
+
+/* Lists styling */
+.analysis-result ul {
+  list-style-type: disc;
+  list-style-position: inside;
+  padding-left: 0;
+}
+
+.analysis-result li {
+  margin-bottom: 0.25rem;
+  color: #e0e0e0;
+}
+
+/* Strong emphasis for score */
+.analysis-result p strong {
+  color: #ffd700;
 }
